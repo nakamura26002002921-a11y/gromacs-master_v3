@@ -1,59 +1,66 @@
 # dynamic_orchestrater.py
-#===========================================================
+# ============================================================
 # Usage:
-#   export RECOVERY_API_KEY="..."
-#   python3 dynamic_orchestrater.py -p plan.json --recovery-url https://example.com
-#   python3 dynamic_orchestrater.py -p plan.json -s nvt -e npt_pr -ep /path/to/workdir --recovery-url https://example.com
-#===========================================================
+#   export GROQ_API_KEY="..."
+#   python3 dynamic_orchestrater.py -p plan.json
+#   python3 dynamic_orchestrater.py -p plan.json -s nvt -e npt_pr -ep /path/to/workdir
+# ============================================================
 
 import argparse
-import hashlib
-import hmac
 import json
 import os
 import subprocess
 import sys
-import time
-import urllib.request
 from pathlib import Path
 from datetime import datetime
-
-POLL = 5
-
-
-def command_hash(cmd):
-    canonical = json.dumps({"実行コマンド": cmd["実行コマンド"], "目的": cmd["目的"]}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+from groq import Groq
 
 
-def api(method, url, body=None):
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-    headers = {"X-API-Key": os.environ["RECOVERY_API_KEY"], "User-Agent": "gromacs-orchestrator/2.0", "Content-Type": "application/json"}
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, method=method, headers=headers), timeout=30) as res:
-            return json.loads(res.read().decode("utf-8"))
-    except Exception as e:
-        print(f"復旧サーバーに接続できません: {e}")
-        return {}
+SYSTEM_PROMPT = """
+目的：
+エラーが起きたから、復元のコマンドを書いて
+
+- 実行コマンド: 入力するコマンド
+- 目的: なぜそのコマンドなのか?
+
+すべてのフィールドは指定されたJSON Schemaの型を厳密に守る。
+JSON以外の文章を出力しない。
+"""
 
 
-def wait_for_approval(history, url, timeout):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        res = api("POST", url + "/", history)
-        if res.get("request_id"):
-            print("承認ページ: " + res["approval_url"])
-            rid = res["request_id"]
-            break
-        time.sleep(POLL)
-    else:
-        return {"status": "timeout"}
-    while time.time() < deadline:
-        res = api("GET", url + "/result/" + rid)
-        if res.get("status") not in (None, "pending"):
-            return res
-        time.sleep(POLL)
-    return {"status": "timeout"}
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "実行コマンド": {"type": "string"},
+        "目的": {"type": "string"},
+    },
+    "required": ["実行コマンド", "目的"],
+    "additionalProperties": False
+}
+
+
+def call_vocab(history, api_key):
+    client = Groq(api_key=api_key)
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"エラー:\n{json.dumps(history, ensure_ascii=False, indent=2)}"}
+        ],
+        temperature=0,
+        max_tokens=2000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "recovery",
+                "strict": True,
+                "schema": SCHEMA
+            }
+        }
+    )
+    usage = response.usage
+    print(f"  tokens: prompt={usage.prompt_tokens}, completion={usage.completion_tokens}, total={usage.total_tokens}")
+    return json.loads(response.choices[0].message.content)
 
 
 def run(node, cmd, cwd):
@@ -69,9 +76,7 @@ def main():
     p.add_argument("-s", "--start")
     p.add_argument("-e", "--end")
     p.add_argument("-ep", "--executionpath", default=".")
-    p.add_argument("--recovery-url", default="")
     p.add_argument("--max-retries", type=int, default=3)
-    p.add_argument("--timeout", type=int, default=3600)
     a = p.parse_args()
     plan = json.load(open(a.plan, encoding="utf-8"))
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -82,29 +87,26 @@ def main():
     end = a.end or list(plan)[-1]
     history = []
     retries = 0
-    try:
-        while True:
-            history.append(run(node, plan[node], a.executionpath))
-            if history[-1]["終了コード"] == 0:
-                if node == end:
-                    return True
-                retries = 0
-                node = plan[node]["次のノード"]
-                continue
-            if not a.recovery_url or retries >= a.max_retries:
-                return False
-            retries += 1
-            res = wait_for_approval(history, a.recovery_url.rstrip("/"), a.timeout)
-            cmd = res.get("command")
-            if res["status"] != "approved" or not hmac.compare_digest(res.get("command_hash", ""), command_hash(cmd)):
-                print("復旧コマンドが承認されなかった、または内容が一致しないため停止します: " + res["status"])
-                return False
-            history.append(run(node, cmd, a.executionpath))
-            if history[-1]["終了コード"] != 0:
-                return False
-    finally:
-        for path in paths:
-            json.dump(history, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    while True:
+        history.append(run(node, plan[node], a.executionpath))
+        if history[-1]["終了コード"] == 0:
+            if node == end:
+                break
+            retries = 0
+            node = plan[node]["次のノード"]
+            continue
+        if retries >= a.max_retries:
+            break
+        retries += 1
+        recovery_command = call_vocab(history, os.environ["GROQ_API_KEY"])
+        print("生成された復旧コマンド: " + recovery_command["実行コマンド"])
+        print("復旧コマンドの目的: " + recovery_command["目的"])
+        history.append(run(node, recovery_command, a.executionpath))
+        if history[-1]["終了コード"] == 0:
+            retries = 0
+    for path in paths:
+        json.dump(history, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    return history[-1]["終了コード"] == 0 and node == end
 
 
 if __name__ == "__main__":
