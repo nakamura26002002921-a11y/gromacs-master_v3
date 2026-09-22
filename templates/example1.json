@@ -1,0 +1,133 @@
+{
+  "start": {
+    "実行コマンド": "mkdir -p {PATH}/md {PATH}/mdp {PATH}/sys {PATH}/em {PATH}/nvt {PATH}/npt_br {PATH}/npt_pr",
+    "目的": "シミュレーションに必要なディレクトリを初期化する",
+    "次のノード": "get_pdb"
+  },
+
+  "get_pdb": {
+    "実行コマンド": "wget -q -O {PATH}/sys/{PDBID}.pdb https://files.rcsb.org/download/{PDBID}.pdb",
+    "目的": "指定されたPDB IDから構造を取得する",
+    "次のノード": "system_build_cleanpdb"
+  },
+
+  "system_build_cleanpdb": {
+    "実行コマンド": "grep -vE '^.{17}SOL ' {PATH}/sys/{PDBID}.pdb > {PATH}/sys/clean.pdb",
+    "目的": "PDBから水分子SOLを除去してclean.pdbを作成する",
+    "次のノード": "system_build_pdb2gmx"
+  },
+  
+  "system_build_pdb2gmx": {
+    "実行コマンド": "{GMX} pdb2gmx -f {PATH}/sys/clean.pdb -o {PATH}/sys/processed.gro -water {WATER_MODEL} -p {PATH}/sys/processed.top -ff {FORCE_FIELD}",
+    "目的": "PDBをGROMACS形式へ変換し、初期トポロジーを作成する",
+    "次のノード": "system_build_editconf"
+  },
+
+  "system_build_editconf": {
+    "実行コマンド": "{GMX} editconf -f {PATH}/sys/processed.gro -o {PATH}/sys/newbox.gro -c -d {DISTANCE} -bt cubic",
+    "目的": "シミュレーションボックスを作成する",
+    "次のノード": "system_build_solvate"
+  },
+
+  "system_build_solvate": {
+    "実行コマンド": "cp {PATH}/sys/processed.top {PATH}/sys/solv.top && {GMX} solvate -cp {PATH}/sys/newbox.gro -cs {WATERBOXFILE} -o {PATH}/sys/solv.gro -p {PATH}/sys/solv.top",
+    "目的": "初期トポロジーをsolv.topとしてコピーし、水ボックスを追加して溶媒分子数をsolv.topに反映する",
+    "次のノード": "create_ions_mdp"
+  },
+
+  "create_ions_mdp": {
+    "実行コマンド": "cat > {PATH}/mdp/ions.mdp <<'EOF'\n; ions.mdp - used as input into grompp to generate ions.tpr\nintegrator = steep\nemtol = 1000.0\nemstep = 0.01\nnsteps = 50000\n\nnstlist = 1\ncutoff-scheme = Verlet\ncoulombtype = cutoff\nrcoulomb = 1.0\nrvdw = 1.0\npbc = xyz\nEOF",
+    "目的": "イオン追加用のMDPファイルを作成する",
+    "次のノード": "system_build_grompp"
+  },
+
+  "system_build_grompp": {
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/ions.mdp -c {PATH}/sys/solv.gro -p {PATH}/sys/solv.top -o {PATH}/sys/ions.tpr -maxwarn 1",
+    "目的": "溶媒和済み系からイオン追加用の入力ファイルを生成する",
+    "次のノード": "system_build_genion"
+  },
+
+  "system_build_genion": {
+    "実行コマンド": "cp {PATH}/sys/solv.top {PATH}/sys/ions.top && printf 'SOL\\n' | {GMX} genion -s {PATH}/sys/ions.tpr -o {PATH}/sys/ions.gro -p {PATH}/sys/ions.top -pname NA -nname CL -neutral",
+    "目的": "solv.topをions.topとしてコピーし、系を電気的に中性化するためにイオンを追加してions.topを更新する",
+    "次のノード": "system_build_copy"
+  },
+
+  "system_build_copy": {
+    "実行コマンド": "cp {PATH}/sys/ions.gro {PATH}/sys/MD.gro && cp {PATH}/sys/ions.top {PATH}/sys/MD.top",
+    "目的": "イオン追加後の構造と更新済みトポロジーをMD用ファイルとして保存する",
+    "次のノード": "create_em_mdp"
+  },
+
+  "create_em_mdp": {
+    "実行コマンド": "cat > {PATH}/mdp/em.mdp <<'EOF'\n; em.mdp - used as input to grompp to generate em.tpr\nintegrator  = steep\nemtol       = 1000.0\nemstep      = 0.01\nnsteps      = 50000\n\nnstlist         = 1\ncutoff-scheme   = Verlet\nns_type         = grid\ncoulombtype     = PME\nrcoulomb        = 1.0\nrvdw            = 1.0\npbc             = xyz\nEOF",
+    "目的": "エネルギー最小化用のMDPファイルを作成する",
+    "次のノード": "minimization"
+  },
+
+  "minimization": {
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/em.mdp -c {PATH}/sys/MD.gro -p {PATH}/sys/MD.top -o {PATH}/em/em.tpr -maxwarn 1 && {GMX} mdrun -v -deffnm {PATH}/em/em",
+    "目的": "エネルギー最小化を実行する",
+    "次のノード": "create_nvt_mdp"
+  },
+
+  "create_nvt_mdp": {
+    "実行コマンド": "cat > {PATH}/mdp/nvt.mdp <<'EOF'\nintegrator = md\ndt = 0.0005\nnsteps = 200000\n\ncutoff-scheme = Verlet\nrlist = 1.2\nrcoulomb = 1.2\ncoulombtype = PME\nrvdw = 1.2\n\ntcoupl = V-rescale\ntc-grps = System\ntau_t = 0.1\nref_t = 300\n\npcoupl = no\n\nconstraints = h-bonds\nconstraint-algorithm = lincs\n\npbc = xyz\nEOF",
+    "目的": "NVT平衡化用のMDPファイルを作成する",
+    "次のノード": "nvt"
+  },
+
+  "nvt": {
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/nvt.mdp -c {PATH}/em/em.gro -r {PATH}/em/em.gro -p {PATH}/sys/MD.top -o {PATH}/nvt/nvt.tpr -maxwarn 1 && {GMX} mdrun -deffnm {PATH}/nvt/nvt",
+    "目的": "NVT平衡化を実行する",
+    "次のノード": "create_npt_br_mdp"
+  },
+
+  "create_npt_br_mdp": {
+    "実行コマンド": "cat > {PATH}/mdp/npt_br.mdp <<'EOF'\nintegrator = md\ndt = 0.002\nnsteps = 50000\n\ncutoff-scheme = Verlet\nrlist = 1.2\nrcoulomb = 1.2\ncoulombtype = PME\nrvdw = 1.2\n\ntcoupl = V-rescale\ntc-grps = System\ntau_t = 0.1\nref_t = 300\n\npcoupl = Berendsen\npcoupltype = isotropic\ntau_p = 2.0\nref_p = 560\ncompressibility = 4.5e-5\n\nconstraints = h-bonds\nconstraint-algorithm = lincs\n\npbc = xyz\n\nnstxout-compressed = 1000\nnstenergy = 1000\nnstlog = 1000\nEOF",
+    "目的": "Berendsen法によるNPT平衡化用のMDPファイルを作成する",
+    "次のノード": "npt_br"
+  },
+
+  "npt_br": {
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/npt_br.mdp -c {PATH}/nvt/nvt.gro -r {PATH}/nvt/nvt.gro -p {PATH}/sys/MD.top -o {PATH}/npt_br/npt_br.tpr -maxwarn 1 && {GMX} mdrun -deffnm {PATH}/npt_br/npt_br",
+    "目的": "Berendsen法によるNPT平衡化を実行する",
+    "次のノード": "create_npt_pr_mdp"
+  },
+
+  "create_npt_pr_mdp": {
+    "実行コマンド": "cat > {PATH}/mdp/npt_pr.mdp <<'EOF'\nintegrator = md\ndt = 0.002\nnsteps = 50000\n\ncutoff-scheme = Verlet\nrlist = 1.2\nrcoulomb = 1.2\ncoulombtype = PME\nrvdw = 1.2\n\ntcoupl = V-rescale\ntc-grps = System\ntau_t = 0.1\nref_t = 300\n\npcoupl = Parrinello-Rahman\npcoupltype = isotropic\ntau_p = 2.0\nref_p = 560\ncompressibility = 4.5e-5\n\nconstraints = h-bonds\nconstraint-algorithm = lincs\n\npbc = xyz\n\nnstxout-compressed = 1000\nnstenergy = 1000\nnstlog = 1000\nEOF",
+    "目的": "Parrinello-Rahman法によるNPT平衡化用のMDPファイルを作成する",
+    "次のノード": "npt_pr"
+  },
+
+  "npt_pr": {
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/npt_pr.mdp -c {PATH}/npt_br/npt_br.gro -r {PATH}/npt_br/npt_br.gro -p {PATH}/sys/MD.top -o {PATH}/npt_pr/npt_pr.tpr -maxwarn 1 && {GMX} mdrun -deffnm {PATH}/npt_pr/npt_pr",
+    "目的": "Parrinello-Rahman法によるNPT平衡化を実行する",
+    "次のノード": "create_md_mdp"
+  },
+
+  "create_md_mdp": {
+    "実行コマンド": "cat > {PATH}/mdp/md.mdp <<'EOF'\nintegrator = md\ndt = 0.002\nnsteps = 50000000\n\ncutoff-scheme = Verlet\n\ncoulombtype = PME\nrcoulomb = 1.0\nrvdw = 1.0\n\ntcoupl = V-rescale\ntc-grps = System\ntau_t = 0.1\nref_t = 300\n\npcoupl = no\n\nconstraints = h-bonds\nconstraint-algorithm = lincs\n\npbc = xyz\n\nnstxout-compressed = 5000\nnstenergy = 500\nnstlog = 500\nEOF",
+    "目的": "本番MD用のMDPファイルを作成する",
+    "次のノード": "md"
+  },
+
+  "md": {
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/md.mdp -c {PATH}/npt_pr/npt_pr.gro -p {PATH}/sys/MD.top -o {PATH}/md/md.tpr && {GMX} mdrun -deffnm {PATH}/md/md",
+    "目的": "本番MDシミュレーションを実行する",
+    "次のノード": "analysis"
+  },
+
+  "analysis": {
+    "実行コマンド": "cd {PATH}/md && echo 0 | {GMX} trjconv -f md.xtc -s md.tpr -o md_w.xtc -pbc whole && printf '1\\n0\\n' | {GMX} trjconv -f md_w.xtc -s md.tpr -o md_w_cluster.xtc -pbc cluster && printf '1\\n0\\n' | {GMX} trjconv -f md_w_cluster.xtc -s md.tpr -o md_w_cluster_center.xtc -pbc mol -ur compact -center && {GMX} editconf -f md.gro -o md.pdb && printf '1\\n' | {GMX} sasa -f md_w_cluster_center.xtc -s md.tpr -o sasa.xvg -tv volume.xvg",
+    "目的": "MD軌道を整形し、PDBとSASAおよび体積データを生成する",
+    "次のノード": "finish"
+  },
+
+  "finish": {
+    "実行コマンド": "echo finish",
+    "目的": "シミュレーションと解析の完了を記録する",
+    "次のノード": null
+  }
+}
