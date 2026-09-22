@@ -1,9 +1,8 @@
 # dynamic_orchestrater.py
 # ============================================================
 # Usage:
-#   export GROQ_API_KEY="..."
-#   python3 dynamic_orchestrater.py -p plan.json
-#   python3 dynamic_orchestrater.py -p plan.json -s nvt -e npt_pr -ep /path/to/workdir
+#   python3 dynamic_orchestrater.py -p plan.json --api-key "gsk_..."
+#   python3 dynamic_orchestrater.py -p plan.json --api-key "gsk_..." -s nvt -e npt_pr -ep /path/to/workdir
 # ============================================================
 
 import argparse
@@ -71,6 +70,7 @@ def run(node, cmd, cwd):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("-p", "--plan", required=True)
+    p.add_argument("--api-key", required=True)
     p.add_argument("--history")
     p.add_argument("-l", "--logpath")
     p.add_argument("-s", "--start")
@@ -98,7 +98,7 @@ def main():
         if retries >= a.max_retries:
             break
         retries += 1
-        recovery_command = call_vocab(history, os.environ["GROQ_API_KEY"])
+        recovery_command = call_vocab(history, a.api_key)
         print("生成された復旧コマンド: " + recovery_command["実行コマンド"])
         print("復旧コマンドの目的: " + recovery_command["目的"])
         history.append(run(node, recovery_command, a.executionpath))
