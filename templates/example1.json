@@ -18,19 +18,19 @@
   },
   
   "system_build_pdb2gmx": {
-    "実行コマンド": "{GMX} pdb2gmx -f {PATH}/sys/clean.pdb -o {PATH}/sys/processed.gro -water {WATER_MODEL} -p {PATH}/sys/processed.top -ff {FORCE_FIELD}",
+    "実行コマンド": "{GMX} pdb2gmx -f {PATH}/sys/clean.pdb -o {PATH}/sys/processed.gro -water {WATER_MODEL} -p {PATH}/sys/processed.top -ff {FORCE_FIELD} -nobackup",
     "目的": "PDBをGROMACS形式へ変換し、初期トポロジーを作成する",
     "次のノード": "system_build_editconf"
   },
 
   "system_build_editconf": {
-    "実行コマンド": "{GMX} editconf -f {PATH}/sys/processed.gro -o {PATH}/sys/newbox.gro -c -d {DISTANCE} -bt cubic",
+    "実行コマンド": "{GMX} editconf -f {PATH}/sys/processed.gro -o {PATH}/sys/newbox.gro -c -d {DISTANCE} -bt cubic -nobackup",
     "目的": "シミュレーションボックスを作成する",
     "次のノード": "system_build_solvate"
   },
 
   "system_build_solvate": {
-    "実行コマンド": "cp {PATH}/sys/processed.top {PATH}/sys/solv.top && {GMX} solvate -cp {PATH}/sys/newbox.gro -cs {WATERBOXFILE} -o {PATH}/sys/solv.gro -p {PATH}/sys/solv.top",
+    "実行コマンド": "cp {PATH}/sys/processed.top {PATH}/sys/solv.top && {GMX} solvate -cp {PATH}/sys/newbox.gro -cs {WATERBOXFILE} -o {PATH}/sys/solv.gro -p {PATH}/sys/solv.top -nobackup",
     "目的": "初期トポロジーをsolv.topとしてコピーし、水ボックスを追加して溶媒分子数をsolv.topに反映する",
     "次のノード": "create_ions_mdp"
   },
