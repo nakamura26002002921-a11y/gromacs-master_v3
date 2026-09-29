@@ -1,5 +1,6 @@
 # dynamic_orchestrater.py
 # ============================================================
+# Usage:
 #   python3 dynamic_orchestrater.py -p plan.json --api-key "gsk_..."
 #   python3 dynamic_orchestrater.py -p plan.json --api-key "gsk_..." --server-url "https://xxxx.trycloudflare.com"
 #   python3 dynamic_orchestrater.py -p plan.json --api-key "gsk_..." -s nvt -e npt_pr -ep /path/to/workdir --server-url "https://xxxx.trycloudflare.com"
