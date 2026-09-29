@@ -42,7 +42,7 @@ def call_llm(history, api_key):
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(model="openai/gpt-oss-120b", 
                                               messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": json.dumps(history, ensure_ascii=False)}], 
-                                              temperature=0, max_tokens=2000, 
+                                              temperature=0, max_tokens=8000, 
                                               response_format={"type": "json_schema", "json_schema": {"name": "recovery_command", "strict": True, "schema": SCHEMA}})
     return json.loads(response.choices[0].message.content)
 
@@ -55,7 +55,7 @@ def build_assistant_prompt(history):
 def call_llm_assistant(messages, history, api_key):
     client = Groq(api_key=api_key)
     messages.append({"role": "user", "content": build_assistant_prompt(history)})
-    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, temperature=0, max_tokens=2000, 
+    response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=messages, temperature=0, max_tokens=8000, 
                                               response_format={"type": "json_schema", "json_schema": {"name": "recovery_command", "strict": True, "schema": SCHEMA}})
     result = response.choices[0].message.content
     messages.append({"role": "assistant", "content": result})
@@ -103,7 +103,7 @@ def main():
     p.add_argument("-s", "--start")
     p.add_argument("-e", "--end")
     p.add_argument("-ep", "--executionpath", default=".")
-    p.add_argument("--max-retries", type=int, default=3)
+    p.add_argument("--max-retries", type=int, default=30)
     p.add_argument("--server-url", required=True)
     p.add_argument("--approval-timeout", type=int, default=3600)
     p.add_argument("--approval-interval", type=int, default=5)
