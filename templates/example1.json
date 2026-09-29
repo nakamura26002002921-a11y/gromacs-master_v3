@@ -16,7 +16,7 @@
     "目的": "PDBから水分子SOLを除去してclean.pdbを作成する",
     "次のノード": "system_build_pdb2gmx"
   },
-  
+
   "system_build_pdb2gmx": {
     "実行コマンド": "{GMX} pdb2gmx -f {PATH}/sys/clean.pdb -o {PATH}/sys/processed.gro -water {WATER_MODEL} -p {PATH}/sys/processed.top -ff {FORCE_FIELD} -nobackup",
     "目的": "PDBをGROMACS形式へ変換し、初期トポロジーを作成する",
@@ -42,13 +42,13 @@
   },
 
   "system_build_grompp": {
-    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/ions.mdp -c {PATH}/sys/solv.gro -p {PATH}/sys/solv.top -o {PATH}/sys/ions.tpr -maxwarn 1",
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/ions.mdp -c {PATH}/sys/solv.gro -p {PATH}/sys/solv.top -o {PATH}/sys/ions.tpr -maxwarn 1 -nobackup",
     "目的": "溶媒和済み系からイオン追加用の入力ファイルを生成する",
     "次のノード": "system_build_genion"
   },
 
   "system_build_genion": {
-    "実行コマンド": "cp {PATH}/sys/solv.top {PATH}/sys/ions.top && printf 'SOL\\n' | {GMX} genion -s {PATH}/sys/ions.tpr -o {PATH}/sys/ions.gro -p {PATH}/sys/ions.top -pname NA -nname CL -neutral",
+    "実行コマンド": "cp {PATH}/sys/solv.top {PATH}/sys/ions.top && printf 'SOL\\n' | {GMX} genion -s {PATH}/sys/ions.tpr -o {PATH}/sys/ions.gro -p {PATH}/sys/ions.top -pname NA -nname CL -neutral -nobackup",
     "目的": "solv.topをions.topとしてコピーし、系を電気的に中性化するためにイオンを追加してions.topを更新する",
     "次のノード": "system_build_copy"
   },
@@ -66,7 +66,7 @@
   },
 
   "minimization": {
-    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/em.mdp -c {PATH}/sys/MD.gro -p {PATH}/sys/MD.top -o {PATH}/em/em.tpr -maxwarn 1 && {GMX} mdrun -v -deffnm {PATH}/em/em",
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/em.mdp -c {PATH}/sys/MD.gro -p {PATH}/sys/MD.top -o {PATH}/em/em.tpr -maxwarn 1 -nobackup && {GMX} mdrun -v -deffnm {PATH}/em/em -nobackup",
     "目的": "エネルギー最小化を実行する",
     "次のノード": "create_nvt_mdp"
   },
@@ -78,7 +78,7 @@
   },
 
   "nvt": {
-    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/nvt.mdp -c {PATH}/em/em.gro -r {PATH}/em/em.gro -p {PATH}/sys/MD.top -o {PATH}/nvt/nvt.tpr -maxwarn 1 && {GMX} mdrun -deffnm {PATH}/nvt/nvt",
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/nvt.mdp -c {PATH}/em/em.gro -r {PATH}/em/em.gro -p {PATH}/sys/MD.top -o {PATH}/nvt/nvt.tpr -maxwarn 1 -nobackup && {GMX} mdrun -deffnm {PATH}/nvt/nvt -nobackup",
     "目的": "NVT平衡化を実行する",
     "次のノード": "create_npt_br_mdp"
   },
@@ -90,7 +90,7 @@
   },
 
   "npt_br": {
-    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/npt_br.mdp -c {PATH}/nvt/nvt.gro -r {PATH}/nvt/nvt.gro -p {PATH}/sys/MD.top -o {PATH}/npt_br/npt_br.tpr -maxwarn 1 && {GMX} mdrun -deffnm {PATH}/npt_br/npt_br",
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/npt_br.mdp -c {PATH}/nvt/nvt.gro -r {PATH}/nvt/nvt.gro -p {PATH}/sys/MD.top -o {PATH}/npt_br/npt_br.tpr -maxwarn 1 -nobackup && {GMX} mdrun -deffnm {PATH}/npt_br/npt_br -nobackup",
     "目的": "Berendsen法によるNPT平衡化を実行する",
     "次のノード": "create_npt_pr_mdp"
   },
@@ -102,7 +102,7 @@
   },
 
   "npt_pr": {
-    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/npt_pr.mdp -c {PATH}/npt_br/npt_br.gro -r {PATH}/npt_br/npt_br.gro -p {PATH}/sys/MD.top -o {PATH}/npt_pr/npt_pr.tpr -maxwarn 1 && {GMX} mdrun -deffnm {PATH}/npt_pr/npt_pr",
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/npt_pr.mdp -c {PATH}/npt_br/npt_br.gro -r {PATH}/npt_br/npt_br.gro -p {PATH}/sys/MD.top -o {PATH}/npt_pr/npt_pr.tpr -maxwarn 1 -nobackup && {GMX} mdrun -deffnm {PATH}/npt_pr/npt_pr -nobackup",
     "目的": "Parrinello-Rahman法によるNPT平衡化を実行する",
     "次のノード": "create_md_mdp"
   },
@@ -114,13 +114,13 @@
   },
 
   "md": {
-    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/md.mdp -c {PATH}/npt_pr/npt_pr.gro -p {PATH}/sys/MD.top -o {PATH}/md/md.tpr && {GMX} mdrun -deffnm {PATH}/md/md",
+    "実行コマンド": "{GMX} grompp -f {PATH}/mdp/md.mdp -c {PATH}/npt_pr/npt_pr.gro -p {PATH}/sys/MD.top -o {PATH}/md/md.tpr -nobackup && {GMX} mdrun -deffnm {PATH}/md/md -nobackup",
     "目的": "本番MDシミュレーションを実行する",
     "次のノード": "analysis"
   },
 
   "analysis": {
-    "実行コマンド": "cd {PATH}/md && echo 0 | {GMX} trjconv -f md.xtc -s md.tpr -o md_w.xtc -pbc whole && printf '1\\n0\\n' | {GMX} trjconv -f md_w.xtc -s md.tpr -o md_w_cluster.xtc -pbc cluster && printf '1\\n0\\n' | {GMX} trjconv -f md_w_cluster.xtc -s md.tpr -o md_w_cluster_center.xtc -pbc mol -ur compact -center && {GMX} editconf -f md.gro -o md.pdb && printf '1\\n' | {GMX} sasa -f md_w_cluster_center.xtc -s md.tpr -o sasa.xvg -tv volume.xvg",
+    "実行コマンド": "cd {PATH}/md && echo 0 | {GMX} trjconv -f md.xtc -s md.tpr -o md_w.xtc -pbc whole -nobackup && printf '1\\n0\\n' | {GMX} trjconv -f md_w.xtc -s md.tpr -o md_w_cluster.xtc -pbc cluster -nobackup && printf '1\\n0\\n' | {GMX} trjconv -f md_w_cluster.xtc -s md.tpr -o md_w_cluster_center.xtc -pbc mol -ur compact -center -nobackup && {GMX} editconf -f md.gro -o md.pdb -nobackup && printf '1\\n' | {GMX} sasa -f md_w_cluster_center.xtc -s md.tpr -o sasa.xvg -tv volume.xvg -nobackup",
     "目的": "MD軌道を整形し、PDBとSASAおよび体積データを生成する",
     "次のノード": "finish"
   },
