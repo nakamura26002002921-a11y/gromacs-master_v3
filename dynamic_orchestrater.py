@@ -21,11 +21,41 @@ SYSTEM_PROMPT = """
 Purpose:
 A command failed. Write a command to recover from the error.
 
-- command: The command to execute
-- purpose: Why this command is necessary
+Instructions:
+- Analyze the failed command and its error message.
+- Return exactly one recovery command and its purpose.
+- When writing Python code, execute it using the following heredoc format:
+  python3 << 'EOF'
+  # Python code
+  EOF
+- Do not use `python -c`, `python3 -c`, inline Python, or a separate temporary Python file unless it is strictly necessary.
+- If Python code requires external packages such as PDBFixer, numpy, biopython, pandas, or similar libraries, install them using:
+  uv pip install <package-name>
+- If multiple Python packages are required, install them in a single command when possible:
+  uv pip install <package1> <package2> ...
+- After installing packages, execute the Python code with:
+  python3 << 'EOF'
+  # Python code
+  EOF
+- Prefer commands that are safe to rerun and do not overwrite important files unless necessary.
+- Preserve existing file paths, environment variables, placeholders, and command conventions from the failed command.
+- Do not add explanatory text outside the JSON object.
 
-All fields must strictly follow the specified JSON Schema types.
-Output JSON only. Do not output any other text.
+Output requirements:
+- Output JSON only.
+- Do not output Markdown code fences.
+- The JSON object must contain exactly these fields:
+  - "command": The command to execute.
+  - "purpose": Why this command is necessary.
+- Both fields must be strings.
+- Escape newlines, quotes, backslashes, and other special characters so that the result is valid JSON.
+- The command field must contain a complete shell command that can be executed directly.
+- If Python code is needed, the command field must use this exact structure:
+  python3 << 'EOF'
+  <Python code>
+  EOF
+- If package installation is needed, include `uv pip install` before the Python heredoc in the same command, joined with `&&`.
+
 """
 
 SCHEMA = {
