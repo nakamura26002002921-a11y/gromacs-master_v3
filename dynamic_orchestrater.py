@@ -14,33 +14,32 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from datetime import datetime
 from groq import Groq
 
 
 SYSTEM_PROMPT = """
-目的：
-エラーが起きたから、復元のコマンドを書いて
+Purpose:
+A command failed. Write a command to recover from the error.
 
-- 実行コマンド: 入力するコマンド
-- 目的: なぜそのコマンドなのか?
+- command: The command to execute
+- purpose: Why this command is necessary
 
-すべてのフィールドは指定されたJSON Schemaの型を厳密に守る。
-JSON以外の文章を出力しない。
+All fields must strictly follow the specified JSON Schema types.
+Output JSON only. Do not output any other text.
 """
 
 SCHEMA = {
     "type": "object",
     "properties": {
-        "実行コマンド": {"type": "string"},
-        "目的": {"type": "string"}
+        "command": {"type": "string"},
+        "purpose": {"type": "string"}
     },
-    "required": ["実行コマンド", "目的"],
+    "required": ["command", "purpose"],
     "additionalProperties": False
 }
 
 
-def call_vocab(history, api_key):
+def call_llm(history, api_key):
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
         model="openai/gpt-oss-120b",
@@ -63,7 +62,7 @@ def call_vocab(history, api_key):
 
 
 def create_approval_request(server_url, request_id, command, purpose):
-    response = requests.post(f"{server_url}/api/requests", json={"id": request_id, "command": command, "purpose": purpose}, timeout=10)
+    response = requests.post(f"{server_url}/api/requests", json={"id": request_id, "purpose": purpose, "command": command}, timeout=10)
     return response.json()
 
 
@@ -80,12 +79,12 @@ def wait_for_approval(server_url, request_id, timeout, interval):
             return data
         if time.time() - started >= timeout:
             return None
-        print(f"承認待ち: {request_id} ({int(time.time() - started)}秒経過)")
+        print(f"Waiting for approval: {request_id} ({int(time.time() - started)} seconds elapsed)")
         time.sleep(interval)
 
 
 def run(node, cmd, cwd):
-    print(f"[{node}] 実行: {cmd['実行コマンド']}")
+    print(f"[{node}] Executing: {cmd['実行コマンド']}")
     result = subprocess.run(cmd["実行コマンド"], shell=True, cwd=cwd, capture_output=True, text=True)
     return {
         "node": node,
@@ -95,6 +94,12 @@ def run(node, cmd, cwd):
         "stdout": result.stdout,
         "stderr": result.stderr
     }
+
+
+def save_history(history, history_path, log_path):
+    data = json.dumps(history, ensure_ascii=False, indent=2)
+    history_path.write_text(data, encoding="utf-8")
+    log_path.write_text(data, encoding="utf-8")
 
 
 def main():
@@ -123,32 +128,27 @@ def main():
     while True:
         result = run(node, plan[node], a.executionpath)
         history.append(result)
-        history_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
-        log_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+        save_history(history, history_path, log_path)
 
         if result["returncode"] == 0:
             if node == end:
                 return 0
-            node = plan[node]["next"]
+            node = plan[node]["次のノード"]
             continue
 
-        recovery_command = None
+        recovered = False
 
         for retry in range(a.max_retries):
-            recovery_command = call_vocab(history, a.api_key)
+            recovery_command = call_llm(history, a.api_key)
             request_id = f"{Path(a.plan).stem}_{node}_{uuid.uuid4().hex[:8]}"
 
-            print(f"復旧コマンドを承認待ちにします: {request_id}")
-            create_approval_request(a.server_url, request_id, recovery_command["実行コマンド"], recovery_command["目的"])
+            print(f"Recovery command is waiting for approval: {request_id}")
+            create_approval_request(a.server_url, request_id, recovery_command["command"], recovery_command["purpose"])
 
             approved = wait_for_approval(a.server_url, request_id, a.approval_timeout, a.approval_interval)
 
             if approved is None:
-                print("承認されませんでした。")
-                return 1
-
-            if approved["status"] != "承認済み":
-                print("承認状態を確認できませんでした。")
+                print("Approval was not received.")
                 return 1
 
             recovery_command = {
@@ -156,25 +156,27 @@ def main():
                 "目的": approved["purpose"]
             }
 
-            print("承認済みを確認しました。復旧コマンドを実行します。")
+            print("Approval confirmed. Executing recovery command.")
             recovery_result = run(node, recovery_command, a.executionpath)
             history.append(recovery_result)
-            history_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
-            log_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+            save_history(history, history_path, log_path)
 
             if recovery_result["returncode"] == 0:
+                recovered = True
                 break
 
-        else:
+        if not recovered:
             return 1
 
-        if history[-1]["returncode"] != 0:
-            return 1
+        if node == end:
+            return 0
+
+        node = plan[node]["次のノード"]
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        print("中断されました。")
+        print("Interrupted.")
         sys.exit(130)
